@@ -1,10 +1,10 @@
 # -------- Stage 1: Checkout code --------
 FROM alpine/git as code_checkout
 
-WORKDIR /app
+WORKDIR /my-java-app
 
 # Clone your Git repo (replace the repo URL accordingly)
-RUN git clone https://github.com/yourusername/your-java-repo.git .
+RUN git clone https://github.com/chaitramk23/my-java-app.git
 
 # -------- Stage 2: Build JAR using Maven --------
 FROM maven:3.8.8-openjdk-17 as build
