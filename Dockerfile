@@ -7,11 +7,12 @@ WORKDIR /my-java-app
 RUN git clone https://github.com/chaitramk23/my-java-app.git
 
 # -------- Stage 2: Build JAR using Maven --------
-FROM FROM maven:3.8-eclipse-temurin-17 as build
+FROM maven:3.8-eclipse-temurin-17 AS build
 
-WORKDIR /app
+WORKDIR /my-java-app
+
 # Copy code from the previous stage
-COPY --from=code_checkout /app /app
+COPY --from=code_checkout /my-java-app /.
 
 # Build the application (compile + test + package)
 RUN mvn clean package -DskipTests
@@ -19,10 +20,7 @@ RUN mvn clean package -DskipTests
 # -------- Stage 3: Run the JAR --------
 FROM openjdk:17-jdk-slim
 
-WORKDIR /app
+WORKDIR /my-java-app
+ 
 
-# Copy the built jar from the build stage
-COPY --from=build /app/target/*.jar app.jar
 
-# Command to run the application
-ENTRYPOINT ["java", "-jar", "app.jar"]
