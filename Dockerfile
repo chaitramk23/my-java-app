@@ -1,5 +1,5 @@
 # -------- Stage 1: Checkout code --------
-FROM alpine/git as code_checkout
+FROM alpine/git AS code_checkout
 
 WORKDIR /my-java-app
 
@@ -7,7 +7,7 @@ WORKDIR /my-java-app
 RUN git clone https://github.com/chaitramk23/my-java-app.git
 
 # -------- Stage 2: Build JAR using Maven --------
-FROM maven:3.8.8-openjdk-17 as build
+FROM maven:3.8.8-openjdk-17 AS build
 
 WORKDIR /app
 
