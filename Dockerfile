@@ -7,10 +7,9 @@ WORKDIR /my-java-app
 RUN git clone https://github.com/chaitramk23/my-java-app.git
 
 # -------- Stage 2: Build JAR using Maven --------
-FROM maven:3.8.8-openjdk-17 AS build
+FROM FROM maven:3.8-eclipse-temurin-17 as build
 
 WORKDIR /app
-
 # Copy code from the previous stage
 COPY --from=code_checkout /app /app
 
