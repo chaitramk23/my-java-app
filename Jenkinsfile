@@ -38,37 +38,35 @@ spec:
   serviceAccountName: jenkins
   containers:
     - name: maven
-      image: maven:3.8.7-openjdk-17
+      image: maven:3.9.2-openjdk-17
       command:
         - cat
       tty: true
       volumeMounts:
         - name: workspace-volume
           mountPath: /home/jenkins/agent
+
     - name: kaniko
       image: gcr.io/kaniko-project/executor:latest
-      command:
-        - cat
-      tty: true
-      env:
-        - name: AWS_REGION
-          value: "ap-south-1"
-        - name: AWS_DEFAULT_REGION
-          value: "ap-south-1"
       volumeMounts:
         - name: workspace-volume
           mountPath: /home/jenkins/agent
         - name: kaniko-secret
           mountPath: /kaniko/.docker
           readOnly: true
+
     - name: helm
       image: alpine/helm:3.11.2
-      command:
-        - cat
-      tty: true
       volumeMounts:
         - name: workspace-volume
           mountPath: /home/jenkins/agent
+
+  volumes:
+    - name: workspace-volume
+      emptyDir: {}
+    - name: kaniko-secret
+      secret:
+        secretName: regcred
 
   volumes:
     - name: workspace-volume
