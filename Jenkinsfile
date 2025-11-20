@@ -38,7 +38,7 @@ spec:
   serviceAccountName: jenkins
   containers:
     - name: maven
-      image: maven:3.9.2-openjdk-17
+      image: maven:3.9.2-eclipse-temurin-17
       command:
         - cat
       tty: true
