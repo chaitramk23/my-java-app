@@ -12,7 +12,7 @@ metadata:
 spec:
   containers:
   - name: maven
-    image: maven:3.9.6-openjdk-21-slim
+    image: maven:3.9.6-openjdk-21
     command:
     - cat
     tty: true
