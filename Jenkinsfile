@@ -1,7 +1,7 @@
 pipeline {
     agent {
         kubernetes {
-            label 'javaapp-agent'
+            label 'javaapp-agent-test'
             defaultContainer 'maven'
             yaml """
 apiVersion: v1
@@ -11,73 +11,49 @@ metadata:
     jenkins: slave
 spec:
   containers:
-    - name: maven
-      image: maven:3.9.6-eclipse-temurin-21
-      command:
-        - sleep
-      args:
-        - "99999"
-      tty: true
-      volumeMounts:
-        - mountPath: /home/jenkins/agent
-          name: workspace
-    - name: kaniko
-      image: gcr.io/kaniko-project/executor:v1.9.0-debug
-      command:
-        - /busybox/sleep
-      args:
-        - "99999"
-      tty: true
-      env:
-        - name: DOCKER_CONFIG
-          value: /kaniko/.docker
-      volumeMounts:
-        - mountPath: /home/jenkins/agent
-          name: workspace
-        - mountPath: /kaniko/.docker
-          name: docker-config
-    - name: helm
-      image: alpine/helm:3.11.2
-      command:
-        - sleep
-      args:
-        - "99999"
-      tty: true
-      volumeMounts:
-        - mountPath: /home/jenkins/agent
-          name: workspace
-    - name: jnlp
-      image: jenkins/inbound-agent:latest
-      env:
-        - name: JENKINS_URL
-          value: http://jenkins.jenkins.svc.cluster.local:8080
-      resources:
-        requests:
-          memory: "256Mi"
-          cpu: "100m"
-      volumeMounts:
-        - mountPath: /home/jenkins/agent
-          name: workspace
+  - name: maven
+    image: maven:3.9.6-eclipse-temurin-21
+    command:
+    - cat
+    tty: true
+    volumeMounts:
+    - mountPath: /home/jenkins/agent
+      name: workspace
+  - name: kaniko
+    image: gcr.io/kaniko-project/executor:v1.9.0-debug
+    command:
+    - cat
+    tty: true
+    env:
+    - name: DOCKER_CONFIG
+      value: /kaniko/.docker
+    volumeMounts:
+    - mountPath: /home/jenkins/agent
+      name: workspace
+    - mountPath: /kaniko/.docker
+      name: docker-config
+  - name: helm
+    image: alpine/helm:3.11.2
+    command:
+    - cat
+    tty: true
+    volumeMounts:
+    - mountPath: /home/jenkins/agent
+      name: workspace
   volumes:
-    - name: workspace
-      emptyDir: {}
-    - name: docker-config
-      secret:
-        secretName: regcred
+  - name: workspace
+    emptyDir: {}
+  - name: docker-config
+    secret:
+      secretName: regcred
 """
         }
     }
 
-    environment {
-        AWS_DEFAULT_REGION = 'ap-south-1'
-        IMAGE_NAME = 'your-dockerhub-username/my-java-app'
-        IMAGE_TAG = 'latest'
-    }
-
     stages {
-        stage('Checkout') {
+        stage('Checkout SCM') {
             steps {
-                checkout scm
+                git url: 'https://github.com/chaitramk23/my-java-app.git', branch: 'main'
             }
         }
 
@@ -89,15 +65,14 @@ spec:
             }
         }
 
-        stage('Build & Push Docker Image') {
+        stage('Build Docker Image & Push') {
             steps {
                 container('kaniko') {
                     sh '''
-                      /kaniko/executor \
-                      --context $WORKSPACE \
-                      --dockerfile $WORKSPACE/Dockerfile \
-                      --destination=$IMAGE_NAME:$IMAGE_TAG \
-                      --skip-tls-verify
+                    /kaniko/executor \
+                        --dockerfile=Dockerfile \
+                        --context=./ \
+                        --destination=<your-dockerhub-username>/my-java-app:latest
                     '''
                 }
             }
@@ -106,20 +81,9 @@ spec:
         stage('Deploy with Helm') {
             steps {
                 container('helm') {
-                    sh '''
-                      helm upgrade --install my-java-app ./helm-chart \
-                      --namespace default \
-                      --set image.repository=$IMAGE_NAME \
-                      --set image.tag=$IMAGE_TAG
-                    '''
+                    sh 'helm upgrade --install my-java-app ./helm-chart --namespace my-app --create-namespace'
                 }
             }
-        }
-    }
-
-    post {
-        always {
-            echo 'Pipeline finished!'
         }
     }
 }
