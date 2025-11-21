@@ -62,7 +62,7 @@ spec:
             steps {
                 container("maven") {
                     sh """
-                        cd /home/ubuntu/my-java-app
+                        cd /home/jenkins/agent
                         mvn clean package -Dmaven.test.skip=true
                         ls -l target
                     """
