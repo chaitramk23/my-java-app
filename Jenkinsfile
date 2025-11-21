@@ -7,54 +7,46 @@ kind: Pod
 spec:
   serviceAccountName: jenkins
   containers:
-    - name: maven
-      image: maven:3.9.6-eclipse-temurin-21
-      command: ["sleep"]
-      args: ["999999"]
-      volumeMounts:
-        - name: workspace
-          mountPath: /home/jenkins/agent
-    - name: kaniko
-      image: gcr.io/kaniko-project/executor:v1.9.0-debug
-      command: ["/busybox/sleep"]
-      args: ["999999"]
-      env:
-        - name: DOCKER_CONFIG
-          value: /kaniko/.docker
-      volumeMounts:
-        - name: workspace
-          mountPath: /home/jenkins/agent
-        - name: docker-config
-          mountPath: /kaniko/.docker/
-    - name: helm
-      image: alpine/helm:3.11.2
-      command: ["sleep"]
-      args: ["999999"]
-      volumeMounts:
-        - name: workspace
-          mountPath: /home/jenkins/agent
-  volumes:
+  - name: maven
+    image: maven:3.9.6-eclipse-temurin-21
+    command: ["sleep"]
+    args: ["999999"]
+    volumeMounts:
     - name: workspace
-      emptyDir: {}
+      mountPath: /home/jenkins/agent
+  - name: kaniko
+    image: gcr.io/kaniko-project/executor:v1.9.0-debug
+    command: ["/busybox/sleep"]
+    args: ["999999"]
+    env:
+    - name: DOCKER_CONFIG
+      value: /kaniko/.docker
+    volumeMounts:
+    - name: workspace
+      mountPath: /home/jenkins/agent
     - name: docker-config
-      secret:
-        secretName: regcred
-        items:
-          - key: .dockerconfigjson
-            path: config.json
+      mountPath: /kaniko/.docker/
+  volumes:
+  - name: workspace
+    emptyDir: {}
+  - name: docker-config
+    secret:
+      secretName: regcred
+      items:
+      - key: .dockerconfigjson
+        path: config.json
 """
         }
     }
 
     environment {
-        AWS_ACCOUNT    = "287084412105"
-        AWS_REGION     = "ap-south-1"
-        IMAGE_REPO     = "${AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/javaapp"
-        IMAGE_TAG      = "${BUILD_NUMBER}"
-        FULL_IMAGE     = "${IMAGE_REPO}:${IMAGE_TAG}"
-
-        K8S_NAMESPACE  = "javaapp"
-        HELM_CHART_DIR = "/home/ubuntu/my-java-app/javaapp-helm"
+        AWS_ACCOUNT = "287084412105"
+        AWS_REGION  = "ap-south-1"
+        IMAGE_REPO  = "${AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/javaapp"
+        IMAGE_TAG   = "${BUILD_NUMBER}"
+        FULL_IMAGE  = "${IMAGE_REPO}:${IMAGE_TAG}"
+        K8S_NAMESPACE = "javaapp"
+        HELM_CHART_DIR = "/home/jenkins/agent/javaapp-helm"
     }
 
     stages {
@@ -63,6 +55,7 @@ spec:
                 container("maven") {
                     sh """
                         cd /home/jenkins/agent
+                        git clone https://github.com/chaitramk23/my-java-app.git .
                         mvn clean package -Dmaven.test.skip=true
                         ls -l target
                     """
@@ -70,14 +63,13 @@ spec:
             }
         }
 
-        stage("Build Docker Image & Push to ECR") {
+        stage("Build Docker Image & Push") {
             steps {
                 container("kaniko") {
                     sh """
-                        echo "Building and pushing image: ${FULL_IMAGE}"
                         /kaniko/executor \
-                          --dockerfile=/home/ubuntu/my-java-app/Dockerfile \
-                          --context=/home/ubuntu/my-java-app \
+                          --dockerfile=/home/jenkins/agent/Dockerfile \
+                          --context=/home/jenkins/agent \
                           --destination=${FULL_IMAGE} \
                           --single-snapshot
                     """
@@ -85,11 +77,10 @@ spec:
             }
         }
 
-        stage("Deploy to Kubernetes with Helm") {
+        stage("Deploy with Helm") {
             steps {
-                container("helm") {
+                container("kaniko") {   // or use helm container if you want
                     sh """
-                        echo "Deploying to Kubernetes using Helm chart"
                         helm upgrade --install javaapp ${HELM_CHART_DIR} \
                           --namespace ${K8S_NAMESPACE} --create-namespace \
                           --set image.repository=${IMAGE_REPO} \
