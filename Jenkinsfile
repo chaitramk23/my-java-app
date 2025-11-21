@@ -1,8 +1,8 @@
 pipeline {
     agent {
         kubernetes {
-            label 'javaapp-agent-test'
-            defaultContainer 'maven'
+            label 'javaapp-agent'
+            defaultContainer 'jnlp'
             yaml """
 apiVersion: v1
 kind: Pod
@@ -14,74 +14,96 @@ spec:
   - name: maven
     image: maven:3.9.6-eclipse-temurin-21
     command:
-    - cat
+      - cat
     tty: true
     volumeMounts:
-    - mountPath: /home/jenkins/agent
-      name: workspace
-  - name: kaniko
-    image: gcr.io/kaniko-project/executor:v1.9.0-debug
-    command:
-    - cat
-    tty: true
-    env:
-    - name: DOCKER_CONFIG
-      value: /kaniko/.docker
-    volumeMounts:
-    - mountPath: /home/jenkins/agent
-      name: workspace
-    - mountPath: /kaniko/.docker
-      name: docker-config
+      - mountPath: /home/jenkins/agent
+        name: workspace
   - name: helm
     image: alpine/helm:3.11.2
     command:
-    - cat
+      - cat
     tty: true
     volumeMounts:
-    - mountPath: /home/jenkins/agent
-      name: workspace
+      - mountPath: /home/jenkins/agent
+        name: workspace
+  - name: kaniko
+    image: gcr.io/kaniko-project/executor:v1.9.0-debug
+    command:
+      - cat
+    tty: true
+    env:
+      - name: DOCKER_CONFIG
+        value: /kaniko/.docker
+    volumeMounts:
+      - mountPath: /home/jenkins/agent
+        name: workspace
+      - mountPath: /kaniko/.docker
+        name: docker-config
+  - name: jnlp
+    image: jenkins/inbound-agent:latest
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 100m
+    env:
+      - name: JENKINS_AGENT_WORKDIR
+        value: /home/jenkins/agent
+    volumeMounts:
+      - mountPath: /home/jenkins/agent
+        name: workspace-volume
+  nodeSelector:
+    kubernetes.io/os: linux
+  restartPolicy: Never
   volumes:
-  - name: workspace
-    emptyDir: {}
-  - name: docker-config
-    secret:
-      secretName: regcred
+    - name: workspace
+      emptyDir: {}
+    - name: docker-config
+      secret:
+        secretName: regcred
+    - name: workspace-volume
+      emptyDir: {}
 """
         }
     }
 
     stages {
-        stage('Checkout SCM') {
+        stage('Checkout') {
             steps {
-                git url: 'https://github.com/chaitramk23/my-java-app.git', branch: 'main'
+                echo "Checking out source code..."
+                checkout scm
             }
         }
 
         stage('Build JAR') {
             steps {
                 container('maven') {
-                    sh 'mvn clean package'
+                    echo "Building JAR with Maven..."
+                    sh 'mvn clean package -DskipTests'
                 }
             }
         }
 
-        stage('Build Docker Image & Push') {
+        stage('Build Docker Image') {
             steps {
                 container('kaniko') {
+                    echo "Building Docker image..."
                     sh '''
                     /kaniko/executor \
-                        --dockerfile=Dockerfile \
-                        --context=./ \
-                        --destination=<your-dockerhub-username>/my-java-app:latest
+                    --context $WORKSPACE \
+                    --dockerfile $WORKSPACE/Dockerfile \
+                    --destination=<your-dockerhub-username>/my-java-app:latest \
+                    --skip-tls-verify
                     '''
                 }
             }
         }
 
-        stage('Deploy with Helm') {
+        stage('Deploy Helm Chart') {
             steps {
                 container('helm') {
-                    sh 'helm upgrade --install my-java-app ./helm-chart --namespace my-app --create-namespace'
+                    echo "Deploying application with Helm..."
+                    sh 'helm upgrade --install my-java-app ./helm-chart -n my-namespace'
                 }
             }
         }
