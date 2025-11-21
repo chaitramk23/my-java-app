@@ -12,7 +12,7 @@ metadata:
 spec:
   containers:
   - name: maven
-    image: maven:3.9.6-openjdk-21
+    image: maven:3.9.6-eclipse-temurin-21
     command:
     - cat
     tty: true
