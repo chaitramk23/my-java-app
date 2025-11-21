@@ -1,138 +1,102 @@
 pipeline {
-
-    agent none
+    agent {
+        kubernetes {
+            yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  serviceAccountName: jenkins
+  containers:
+  - name: maven
+    image: maven:3.9.6-eclipse-temurin-21
+    command: ["sleep"]
+    args: ["999999"]
+    volumeMounts:
+    - name: workspace
+      mountPath: /home/jenkins/agent
+  - name: kaniko
+    image: gcr.io/kaniko-project/executor:v1.9.0-debug
+    command: ["/busybox/sleep"]
+    args: ["999999"]
+    env:
+    - name: DOCKER_CONFIG
+      value: /kaniko/.docker
+    volumeMounts:
+    - name: workspace
+      mountPath: /home/jenkins/agent
+    - name: docker-config
+      mountPath: /kaniko/.docker/
+  - name: helm
+    image: alpine/helm:3.11.2
+    command: ["sleep"]
+    args: ["999999"]
+    volumeMounts:
+    - name: workspace
+      mountPath: /home/jenkins/agent
+  volumes:
+  - name: workspace
+    emptyDir: {}
+  - name: docker-config
+    secret:
+      secretName: regcred
+      items:
+      - key: .dockerconfigjson
+        path: config.json
+"""
+    }
 
     environment {
-        // Git repository
-        GIT_URL = "https://github.com/spring-projects/spring-petclinic.git"
-        GIT_BRANCH = "main"
+        AWS_ACCOUNT   = "287084412105"
+        AWS_REGION    = "ap-south-1"
+        IMAGE_REPO    = "${AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/javaapp"
+        IMAGE_TAG     = "${BUILD_NUMBER}"
+        FULL_IMAGE    = "${IMAGE_REPO}:${IMAGE_TAG}"
 
-        // AWS details
-        AWS_ACCOUNT = "<your-account-id>"
-        AWS_REGION  = "ap-south-1"
-
-        // Docker image info
-        IMAGE_REPO  = "${AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/myjavaapp"
-        IMAGE_TAG   = "${BUILD_NUMBER}"
-        FULL_IMAGE  = "${IMAGE_REPO}:${IMAGE_TAG}"
-
-        // Kubernetes/Helm
         K8S_NAMESPACE = "javaapp"
-        RELEASE_NAME  = "javaapp"
+        HELM_CHART_DIR = "/home/ubuntu/my-java-app/javaapp-helm"
     }
 
     stages {
 
-        stage("Build + Image + Deploy") {
-
-            agent {
-                kubernetes {
-                    yaml """
-apiVersion: v1
-kind: Pod
-metadata:
-  labels:
-    jenkins-agent: javaapp
-spec:
-  restartPolicy: Never
-  serviceAccountName: jenkins
-  containers:
-    - name: maven
-      image: maven:3.9.2-eclipse-temurin-17
-      command:
-        - cat
-      tty: true
-      volumeMounts:
-        - name: workspace-volume
-          mountPath: /home/jenkins/agent
-
-    - name: kaniko
-      image: gcr.io/kaniko-project/executor:latest
-      volumeMounts:
-        - name: workspace-volume
-          mountPath: /home/jenkins/agent
-        - name: kaniko-secret
-          mountPath: /kaniko/.docker
-          readOnly: true
-
-    - name: helm
-      image: alpine/helm:3.11.2
-      volumeMounts:
-        - name: workspace-volume
-          mountPath: /home/jenkins/agent
-
-  volumes:
-    - name: workspace-volume
-      emptyDir: {}
-    - name: kaniko-secret
-      secret:
-        secretName: regcred
-
-  volumes:
-    - name: workspace-volume
-      emptyDir: {}
-    - name: kaniko-secret
-      secret:
-        secretName: regcred
+        stage("Build JAR") {
+            steps {
+                container("maven") {
+                    sh """
+                        cd /home/ubuntu/my-java-app
+                        mvn clean package -Dmaven.test.skip=true
+                        ls -l target
                     """
                 }
             }
+        }
 
-            stages {
-
-                stage("Checkout Code") {
-                    steps {
-                        container("maven") {
-                            sh """
-                                cd /home/jenkins/agent
-                                git clone --branch ${GIT_BRANCH} ${GIT_URL} repo
-                            """
-                        }
-                    }
+        stage("Build Docker Image & Push to ECR") {
+            steps {
+                container("kaniko") {
+                    sh """
+                        echo "Building and pushing image: ${FULL_IMAGE}"
+                        /kaniko/executor \
+                          --dockerfile=/home/ubuntu/my-java-app/Dockerfile \
+                          --context=/home/ubuntu/my-java-app \
+                          --destination=${FULL_IMAGE} \
+                          --single-snapshot
+                    """
                 }
+            }
+        }
 
-                stage("Build JAR") {
-                    steps {
-                        container("maven") {
-                            sh """
-                                cd /home/jenkins/agent/repo
-                                mvn -Dmaven.test.skip=true clean package
-                            """
-                        }
-                    }
+        stage("Deploy to Kubernetes with Helm") {
+            steps {
+                container("helm") {
+                    sh """
+                        echo "Deploying to Kubernetes using Helm chart"
+                        helm upgrade --install javaapp ${HELM_CHART_DIR} \
+                          --namespace ${K8S_NAMESPACE} --create-namespace \
+                          --set image.repository=${IMAGE_REPO} \
+                          --set image.tag=${IMAGE_TAG}
+                    """
                 }
-
-                stage("Build Docker Image") {
-                    steps {
-                        container("kaniko") {
-                            sh """
-                                /kaniko/executor \
-                                  --dockerfile=/home/jenkins/agent/repo/Dockerfile \
-                                  --context=/home/jenkins/agent/repo \
-                                  --destination=${FULL_IMAGE}
-                            """
-                        }
-                    }
-                }
-
-                stage("Deploy via Helm") {
-                    steps {
-                        container("helm") {
-                            sh """
-                                helm upgrade --install ${RELEASE_NAME} \
-                                  /home/jenkins/agent/repo/my-java-app \
-                                  --namespace ${K8S_NAMESPACE} \
-                                  --create-namespace \
-                                  --set image.repository=${IMAGE_REPO} \
-                                  --set image.tag=${IMAGE_TAG}
-                            """
-                        }
-                    }
-                }
-
             }
         }
     }
 }
-
-                 
