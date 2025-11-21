@@ -1,93 +1,125 @@
 pipeline {
     agent {
         kubernetes {
+            label 'javaapp-agent'
+            defaultContainer 'maven'
             yaml """
 apiVersion: v1
 kind: Pod
+metadata:
+  labels:
+    jenkins: slave
 spec:
-  serviceAccountName: jenkins
   containers:
-  - name: maven
-    image: maven:3.9.6-eclipse-temurin-21
-    command: ["sleep"]
-    args: ["999999"]
-    volumeMounts:
-    - name: workspace
-      mountPath: /home/jenkins/agent
-  - name: kaniko
-    image: gcr.io/kaniko-project/executor:v1.9.0-debug
-    command: ["/busybox/sleep"]
-    args: ["999999"]
-    env:
-    - name: DOCKER_CONFIG
-      value: /kaniko/.docker
-    volumeMounts:
-    - name: workspace
-      mountPath: /home/jenkins/agent
-    - name: docker-config
-      mountPath: /kaniko/.docker/
+    - name: maven
+      image: maven:3.9.6-eclipse-temurin-21
+      command:
+        - sleep
+      args:
+        - "99999"
+      tty: true
+      volumeMounts:
+        - mountPath: /home/jenkins/agent
+          name: workspace
+    - name: kaniko
+      image: gcr.io/kaniko-project/executor:v1.9.0-debug
+      command:
+        - /busybox/sleep
+      args:
+        - "99999"
+      tty: true
+      env:
+        - name: DOCKER_CONFIG
+          value: /kaniko/.docker
+      volumeMounts:
+        - mountPath: /home/jenkins/agent
+          name: workspace
+        - mountPath: /kaniko/.docker
+          name: docker-config
+    - name: helm
+      image: alpine/helm:3.11.2
+      command:
+        - sleep
+      args:
+        - "99999"
+      tty: true
+      volumeMounts:
+        - mountPath: /home/jenkins/agent
+          name: workspace
+    - name: jnlp
+      image: jenkins/inbound-agent:latest
+      env:
+        - name: JENKINS_URL
+          value: http://jenkins.jenkins.svc.cluster.local:8080
+      resources:
+        requests:
+          memory: "256Mi"
+          cpu: "100m"
+      volumeMounts:
+        - mountPath: /home/jenkins/agent
+          name: workspace
   volumes:
-  - name: workspace
-    emptyDir: {}
-  - name: docker-config
-    secret:
-      secretName: regcred
-      items:
-      - key: .dockerconfigjson
-        path: config.json
+    - name: workspace
+      emptyDir: {}
+    - name: docker-config
+      secret:
+        secretName: regcred
 """
         }
     }
 
     environment {
-        AWS_ACCOUNT = "287084412105"
-        AWS_REGION  = "ap-south-1"
-        IMAGE_REPO  = "${AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/javaapp"
-        IMAGE_TAG   = "${BUILD_NUMBER}"
-        FULL_IMAGE  = "${IMAGE_REPO}:${IMAGE_TAG}"
-        K8S_NAMESPACE = "javaapp"
-        HELM_CHART_DIR = "/home/jenkins/agent/javaapp-helm"
+        AWS_DEFAULT_REGION = 'ap-south-1'
+        IMAGE_NAME = 'your-dockerhub-username/my-java-app'
+        IMAGE_TAG = 'latest'
     }
 
     stages {
-        stage("Build JAR") {
+        stage('Checkout') {
             steps {
-                container("maven") {
-                    sh """
-                        cd /home/jenkins/agent
-                        git clone https://github.com/chaitramk23/my-java-app.git .
-                        mvn clean package -Dmaven.test.skip=true
-                        ls -l target
-                    """
+                checkout scm
+            }
+        }
+
+        stage('Build JAR') {
+            steps {
+                container('maven') {
+                    sh 'mvn clean package'
                 }
             }
         }
 
-        stage("Build Docker Image & Push") {
+        stage('Build & Push Docker Image') {
             steps {
-                container("kaniko") {
-                    sh """
-                        /kaniko/executor \
-                          --dockerfile=/home/jenkins/agent/Dockerfile \
-                          --context=/home/jenkins/agent \
-                          --destination=${FULL_IMAGE} \
-                          --single-snapshot
-                    """
+                container('kaniko') {
+                    sh '''
+                      /kaniko/executor \
+                      --context $WORKSPACE \
+                      --dockerfile $WORKSPACE/Dockerfile \
+                      --destination=$IMAGE_NAME:$IMAGE_TAG \
+                      --skip-tls-verify
+                    '''
                 }
             }
         }
 
-        stage("Deploy with Helm") {
+        stage('Deploy with Helm') {
             steps {
-                container("kaniko") {   // or use helm container if you want
-                    sh """
-                        helm upgrade --install javaapp ${HELM_CHART_DIR} \
-                          --namespace ${K8S_NAMESPACE} --create-namespace \
-                          --set image.repository=${IMAGE_REPO} \
-                          --set image.tag=${IMAGE_TAG}
-                    """
+                container('helm') {
+                    sh '''
+                      helm upgrade --install my-java-app ./helm-chart \
+                      --namespace default \
+                      --set image.repository=$IMAGE_NAME \
+                      --set image.tag=$IMAGE_TAG
+                    '''
                 }
             }
+        }
+    }
+
+    post {
+        always {
+            echo 'Pipeline finished!'
         }
     }
 }
